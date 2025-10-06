@@ -1,15 +1,17 @@
 .PHONY: setup clean test help setup-repos copy-scripts add-commits run-test run-squash-test
 
+# Load configuration from .env file
+include .env
+
 VENV_DIR := .venv
 PYTHON := $(VENV_DIR)/bin/python
 PIP := $(VENV_DIR)/bin/pip
-ENTERPRISE_REPO := /Users/ankit/paradedb-enterprise
 
 help:
 	@echo "Available targets:"
 	@echo "  make setup              - Create virtual environment and install dependencies"
 	@echo "  make setup-repos        - Create test repositories in /tmp/test-community-sync"
-	@echo "  make copy-scripts       - Symlink scripts from paradedb-enterprise"
+	@echo "  make copy-scripts       - Symlink scripts from $(ENTERPRISE_REPO)"
 	@echo "  make add-commits N=3    - Add N commits to community repo (default: 3)"
 	@echo ""
 	@echo "Interactive Testing:"
@@ -37,7 +39,7 @@ $(VENV_DIR)/bin/activate: requirements.txt
 
 setup-repos: setup
 	@echo "Setting up test repositories..."
-	$(PYTHON) src/setup_repos.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/setup_repos.py
 	@echo "✅ Test repos created in /tmp/test-community-sync"
 
 copy-scripts: setup
@@ -66,30 +68,30 @@ copy-scripts: setup
 
 add-commits: setup
 	@echo "Adding $(or $(N),3) commits to community repo..."
-	$(PYTHON) src/setup_repos.py add-commits $(or $(N),3)
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/setup_repos.py add-commits $(or $(N),3)
 
 run-test: setup
 	@echo "Starting interactive test runner..."
-	$(PYTHON) src/run_manual_test.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/run_manual_test.py
 
 run-squash-test: setup
 	@echo "Starting interactive squash test runner..."
-	$(PYTHON) src/run_squash_test.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/run_squash_test.py
 
 test: setup copy-scripts
 	@echo "Running automated tests..."
 	@echo "Running rebase tests..."
-	$(PYTHON) src/test_rebase_automated.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/test_rebase_automated.py
 	@echo "Running squash tests..."
-	$(PYTHON) src/test_squash_automated.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/test_squash_automated.py
 
 test-rebase: setup copy-scripts
 	@echo "Running automated rebase tests..."
-	$(PYTHON) src/test_rebase_automated.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/test_rebase_automated.py
 
 test-squash: setup copy-scripts
 	@echo "Running automated squash tests..."
-	$(PYTHON) src/test_squash_automated.py
+	ENTERPRISE_REPO=$(ENTERPRISE_REPO) $(PYTHON) src/test_squash_automated.py
 
 clean:
 	@echo "Cleaning up..."

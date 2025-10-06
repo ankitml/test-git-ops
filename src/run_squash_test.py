@@ -340,7 +340,7 @@ def main():
     if not scripts_dir.exists():
         print("\n❌ Scripts not found!")
         print("\nRun this first:")
-        print(f"  python src/copy_scripts.py /path/to/paradedb-enterprise")
+        print(f"  python src/copy_scripts.py /path/to/your/enterprise-repo")
         sys.exit(1)
 
     while True:

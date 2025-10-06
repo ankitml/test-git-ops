@@ -1,18 +1,18 @@
 # Community Sync Testing Framework
 
-Testing framework for ParadeDB enterprise community sync scripts. Tests git rebase/squash operations between community and enterprise repositories.
+Testing framework for enterprise community sync scripts. Tests git rebase/squash operations between community and enterprise repositories.
 
 ## Configuration
 
 **Variables (in Makefile):**
 ```bash
-ENTERPRISE_REPO := /Users/ankit/paradedb-enterprise    # Your local enterprise repo
-COMMUNITY_REPO_URL := https://github.com/paradedb/paradedb.git  # Upstream community
+ENTERPRISE_REPO := /path/to/your/enterprise-repo    # Your local enterprise repo
+COMMUNITY_REPO_URL := https://github.com/your-org/community-repo.git  # Upstream community
 ```
 
 **Repository Workflow:**
-1. **Community**: `https://github.com/paradedb/paradedb.git` (upstream open source)
-2. **Enterprise**: `/Users/ankit/paradedb-enterprise` (your local fork + patches)
+1. **Community**: `https://github.com/your-org/community-repo.git` (upstream open source)
+2. **Enterprise**: `/path/to/your/enterprise-repo` (your local fork + patches)
 3. **Test repos**: Created in `/tmp/test-community-sync/` (ephemeral)
 
 ## How It Works

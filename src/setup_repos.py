@@ -105,6 +105,25 @@ def setup_test_repos():
     # Push to enterprise origin
     run("git push origin main", cwd=enterprise_repo)
 
+    # Copy scripts to enterprise repo using ENTERPRISE_REPO from environment
+    import os
+    enterprise_repo_source = os.environ.get('ENTERPRISE_REPO')
+    if enterprise_repo_source:
+        scripts_dir = Path(enterprise_repo_source) / "scripts"
+        if scripts_dir.exists():
+            enterprise_scripts = enterprise_repo / "scripts"
+            if enterprise_scripts.exists():
+                shutil.rmtree(enterprise_scripts)
+            shutil.copytree(scripts_dir, enterprise_scripts)
+            # Make scripts executable
+            for script_file in enterprise_scripts.glob("*.sh"):
+                script_file.chmod(0o755)
+            print("✅ Scripts copied to enterprise test repo")
+        else:
+            print(f"⚠️  Scripts directory not found at {scripts_dir}")
+    else:
+        print("⚠️  ENTERPRISE_REPO environment variable not set")
+
     print("\n✅ Test repositories created successfully!")
     print(f"\nCommunity repo: {community_repo}")
     print(f"Enterprise repo: {enterprise_repo}")
