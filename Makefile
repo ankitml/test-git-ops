@@ -97,5 +97,8 @@ clean:
 	@echo "Cleaning up..."
 	rm -rf $(VENV_DIR)
 	rm -rf /tmp/test-community-sync
-	rm -rf scripts/
+	@if [ -L scripts ]; then \
+		echo "Removing scripts symlink..."; \
+		rm scripts; \
+	fi
 	@echo "✅ Cleanup complete!"

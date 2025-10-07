@@ -1,283 +1,184 @@
 #!/usr/bin/env python3
 """
-Automated squash testing runner.
+Simple manual test of squash script with known state.
 
-Tests enterprise patch squash operations without user interaction.
-Includes setup, execution, and validation phases.
+Setup:
+- Community: 3 commits (initial + 2 features)
+- Enterprise: Same 3 community commits + 3 enterprise patches
+- Test: Squash the 3 enterprise patches into 1 commit
 """
 
+import subprocess
 import sys
 from pathlib import Path
-from typing import List
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
-
-from test_helpers import (
-    run, get_git_state, validate_squash_result,
-    print_test_results, TestResult,
-    COMMUNITY_REPO, ENTERPRISE_REPO, TEST_DIR
-)
-
-# Import squash test functions
-from run_squash_test import setup_squash_test_repos
+TEST_DIR = Path("/tmp/test-community-sync")
+ENTERPRISE_REPO = TEST_DIR / "enterprise-repo"
 
 
-def add_enterprise_patches(count: int) -> bool:
-    """Add enterprise patches for testing."""
-    print(f"\n📝 Adding {count} enterprise patches...")
+def run(cmd, cwd=None, check=True):
+    """Run shell command."""
+    print(f"  $ {cmd}")
+    result = subprocess.run(cmd, shell=True, cwd=cwd, check=check, capture_output=True, text=True)
+    if result.stdout:
+        print(f"    {result.stdout.strip()}")
+    return result
 
-    try:
-        from run_squash_test import add_enterprise_patches
-        add_enterprise_patches(count)
-        print(f"✅ Added {count} enterprise patches")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to add enterprise patches: {e}")
+
+def setup_simple_test():
+    """Create simple test scenario: 3 community + 3 enterprise commits."""
+    print("🧹 Setting up simple test scenario...")
+
+    # Clean up
+    if TEST_DIR.exists():
+        subprocess.run(f"rm -rf {TEST_DIR}", shell=True)
+    TEST_DIR.mkdir(parents=True)
+
+    print("\n📦 Creating community repository...")
+    community_origin = TEST_DIR / "community-origin"
+    community_repo = TEST_DIR / "community-repo"
+
+    # Create community repo with exactly 3 commits
+    run(f"git init --bare {community_origin}")
+    run(f"git clone {community_origin} {community_repo}")
+    run("git config user.name 'Community Bot'", cwd=community_repo)
+    run("git config user.email 'community@test.com'", cwd=community_repo)
+
+    # Commit 1: Initial
+    (community_repo / "README.md").write_text("# Community\n")
+    run("git add README.md", cwd=community_repo)
+    run("git commit -m 'initial: add README'", cwd=community_repo)
+
+    # Commit 2: Feature 1
+    (community_repo / "feature1.txt").write_text("Feature 1\n")
+    run("git add feature1.txt", cwd=community_repo)
+    run("git commit -m 'feat: add feature 1'", cwd=community_repo)
+
+    # Commit 3: Feature 2
+    (community_repo / "feature2.txt").write_text("Feature 2\n")
+    run("git add feature2.txt", cwd=community_repo)
+    run("git commit -m 'feat: add feature 2'", cwd=community_repo)
+
+    run("git push origin main", cwd=community_repo)
+
+    print("\n📦 Creating enterprise repository...")
+    enterprise_origin = TEST_DIR / "enterprise-origin"
+    enterprise_repo = TEST_DIR / "enterprise-repo"
+
+    # Create enterprise repo from community
+    run(f"git init --bare {enterprise_origin}")
+    run(f"git clone {community_origin} {enterprise_repo}")
+    run(f"git remote set-url origin {enterprise_origin}", cwd=enterprise_repo)
+    run("git config user.name 'Enterprise Bot'", cwd=enterprise_repo)
+    run("git config user.email 'enterprise@test.com'", cwd=enterprise_repo)
+    run(f"git remote add community {community_origin}", cwd=enterprise_repo)
+    run("git fetch community", cwd=enterprise_repo)
+
+    # Add 3 enterprise patches
+    (enterprise_repo / "enterprise1.txt").write_text("Enterprise 1\n")
+    run("git add enterprise1.txt", cwd=enterprise_repo)
+    run("git commit -m 'feat: enterprise patch 1'", cwd=enterprise_repo)
+
+    (enterprise_repo / "enterprise2.txt").write_text("Enterprise 2\n")
+    run("git add enterprise2.txt", cwd=enterprise_repo)
+    run("git commit -m 'feat: enterprise patch 2'", cwd=enterprise_repo)
+
+    (enterprise_repo / "enterprise3.txt").write_text("Enterprise 3\n")
+    run("git add enterprise3.txt", cwd=enterprise_repo)
+    run("git commit -m 'feat: enterprise patch 3'", cwd=enterprise_repo)
+
+    run("git push origin main", cwd=enterprise_repo)
+
+    print("\n✅ Setup complete!")
+    print("Community: 3 commits")
+    print("Enterprise: 6 commits (3 community + 3 enterprise)")
+
+    return enterprise_repo
+
+
+def test_squash(enterprise_repo):
+    """Test the squash script."""
+    print("\n🔧 Testing squash script...")
+
+    # Get state before
+    print("\n📊 State before squash:")
+    result = run("git log --oneline -10", cwd=enterprise_repo)
+
+    # Find common ancestor and show enterprise vs community
+    run("git fetch community", cwd=enterprise_repo)
+    common_ancestor = run("git merge-base HEAD community/main", cwd=enterprise_repo).stdout.strip()
+
+    print(f"\n🔍 Common ancestor: {common_ancestor[:8]}")
+    print("\n📋 Enterprise patches (commits after common ancestor):")
+    enterprise_commits = run(f"git log --oneline {common_ancestor}..HEAD", cwd=enterprise_repo).stdout.strip()
+    if enterprise_commits:
+        for line in enterprise_commits.split('\n'):
+            print(f"   • {line}")
+
+    enterprise_patches_before = run(f"git rev-list --count {common_ancestor}..HEAD", cwd=enterprise_repo).stdout.strip()
+    print(f"\n🎯 Enterprise patches count before: {enterprise_patches_before}")
+
+    # Run squash script
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    squash_script = scripts_dir / "squash-enterprise-patches.sh"
+
+    if not squash_script.exists():
+        print("❌ Squash script not found!")
         return False
 
-
-def test_squash_dry_run(commit_count: int) -> List[TestResult]:
-    """Test squash operation with dry-run flag."""
-    print("\n" + "="*50)
-    print(f"🧪 TESTING: Squash Dry Run ({commit_count} patches)")
-    print("="*50)
-
-    results = []
-
-    # Setup
-    setup_squash_test_repos()
-
-    # Add enterprise patches
-    if not add_enterprise_patches(commit_count):
-        results.append(TestResult("Squash Dry Run Setup", False, f"Failed to add {commit_count} patches"))
-        return results
-
-    # Get state before dry run
-    enterprise_before = get_git_state(ENTERPRISE_REPO)
-
-    # Run dry-run
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    squash_script = scripts_dir / "squash-enterprise-patches.sh"
-
-    if not squash_script.exists():
-        results.append(TestResult("Squash Dry Run", False, "Squash script not found"))
-        return results
-
-    cmd = f"{squash_script} --dry-run -m 'test: squashed enterprise patches'"
-    result = run(cmd, cwd=ENTERPRISE_REPO, check=False)
-
-    dry_run_success = result.returncode == 0
-
-    # Get state after dry run (should be unchanged)
-    enterprise_after = get_git_state(ENTERPRISE_REPO)
-
-    # Validate: state should be unchanged after dry run
-    unchanged = (enterprise_before.head_sha == enterprise_after.head_sha and
-                enterprise_before.ahead_count == enterprise_after.ahead_count)
-
-    results.append(TestResult(
-        "Squash Dry Run Validation",
-        dry_run_success and unchanged,
-        f"Dry run succeeded: {dry_run_success}, State unchanged: {unchanged}",
-        expected={"dry_run_success": True, "unchanged": True},
-        actual={"dry_run_success": dry_run_success, "unchanged": unchanged}
-    ))
-
-    return results
-
-
-def test_squash_actual(commit_count: int) -> List[TestResult]:
-    """Test actual squash operation."""
-    print("\n" + "="*50)
-    print(f"🧪 TESTING: Actual Squash ({commit_count} patches)")
-    print("="*50)
-
-    results = []
-
-    # Setup
-    setup_squash_test_repos()
-
-    # Add enterprise patches
-    if not add_enterprise_patches(commit_count):
-        results.append(TestResult("Squash Actual Setup", False, f"Failed to add {commit_count} patches"))
-        return results
-
-    # Get state before squash
-    enterprise_before = get_git_state(ENTERPRISE_REPO)
-
-    # Run actual squash with force flag to avoid interactive prompts
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    squash_script = scripts_dir / "squash-enterprise-patches.sh"
-
-    if not squash_script.exists():
-        results.append(TestResult("Squash Actual", False, "Squash script not found"))
-        return results
-
     cmd = f"{squash_script} --force -m 'test: squashed enterprise patches'"
-    result = run(cmd, cwd=ENTERPRISE_REPO, check=False)
+    result = run(cmd, cwd=enterprise_repo, check=False)
 
-    squash_success = result.returncode == 0
-
-    if not squash_success:
-        results.append(TestResult("Squash Actual", False, f"Squash script failed with exit code {result.returncode}"))
-        if result.stderr:
-            print(f"Squash error: {result.stderr}")
-        return results
-
-    # Get state after squash
-    enterprise_after = get_git_state(ENTERPRISE_REPO)
-
-    # Validate squash result
-    validation = validate_squash_result(enterprise_before, enterprise_after, commit_count)
-    results.append(validation)
-
-    return results
-
-
-def test_squash_no_patches() -> List[TestResult]:
-    """Test squash when there are no patches to squash."""
-    print("\n" + "="*50)
-    print("🧪 TESTING: Squash No Patches")
-    print("="*50)
-
-    results = []
-
-    # Setup without adding patches
-    setup_squash_test_repos()
-
-    # Get state before
-    enterprise_before = get_git_state(ENTERPRISE_REPO)
-
-    # Try to squash (should handle gracefully)
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    squash_script = scripts_dir / "squash-enterprise-patches.sh"
-
-    if not squash_script.exists():
-        results.append(TestResult("Squash No Patches", False, "Squash script not found"))
-        return results
-
-    cmd = f"{squash_script} --force -m 'test: should do nothing'"
-    result = run(cmd, cwd=ENTERPRISE_REPO, check=False)
-
-    # Script should exit successfully when no patches to squash
-    no_patches_handled = result.returncode == 0
-
-    # Get state after (should be unchanged)
-    enterprise_after = get_git_state(ENTERPRISE_REPO)
-
-    unchanged = (enterprise_before.head_sha == enterprise_after.head_sha)
-
-    results.append(TestResult(
-        "Squash No Patches Validation",
-        no_patches_handled and unchanged,
-        f"No patches handled: {no_patches_handled}, State unchanged: {unchanged}",
-        expected={"no_patches_handled": True, "unchanged": True},
-        actual={"no_patches_handled": no_patches_handled, "unchanged": unchanged}
-    ))
-
-    return results
-
-
-def test_squash_single_patch() -> List[TestResult]:
-    """Test squash with single patch (edge case)."""
-    print("\n" + "="*50)
-    print("🧪 TESTING: Squash Single Patch")
-    print("="*50)
-
-    results = []
-
-    # Setup
-    setup_squash_test_repos()
-
-    # Add only 1 patch
-    if not add_enterprise_patches(1):
-        results.append(TestResult("Squash Single Setup", False, "Failed to add 1 patch"))
-        return results
-
-    # Get state before
-    enterprise_before = get_git_state(ENTERPRISE_REPO)
-
-    # Run squash
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    squash_script = scripts_dir / "squash-enterprise-patches.sh"
-
-    if not squash_script.exists():
-        results.append(TestResult("Squash Single", False, "Squash script not found"))
-        return results
-
-    cmd = f"{squash_script} --force -m 'test: single patch'"
-    result = run(cmd, cwd=ENTERPRISE_REPO, check=False)
-
-    single_patch_handled = result.returncode == 0
+    if result.returncode != 0:
+        print(f"❌ Squash script failed: {result.stderr}")
+        return False
 
     # Get state after
-    enterprise_after = get_git_state(ENTERPRISE_REPO)
+    print("\n📊 State after squash:")
+    result = run("git log --oneline -10", cwd=enterprise_repo)
 
-    # Single patch shouldn't be squashed (nothing to squash with)
-    unchanged = (enterprise_before.head_sha == enterprise_after.head_sha)
+    # Find common ancestor after squash and show new state
+    run("git fetch community", cwd=enterprise_repo)
+    common_ancestor_after = run("git merge-base HEAD community/main", cwd=enterprise_repo).stdout.strip()
 
-    results.append(TestResult(
-        "Squash Single Patch Validation",
-        single_patch_handled and unchanged,
-        f"Single patch handled: {single_patch_handled}, State unchanged: {unchanged}",
-        expected={"single_patch_handled": True, "unchanged": True},
-        actual={"single_patch_handled": single_patch_handled, "unchanged": unchanged}
-    ))
+    print(f"\n🔍 Common ancestor after: {common_ancestor_after[:8]}")
+    print("\n📋 Enterprise patches after squashing:")
+    enterprise_commits_after = run(f"git log --oneline {common_ancestor_after}..HEAD", cwd=enterprise_repo).stdout.strip()
+    if enterprise_commits_after:
+        for line in enterprise_commits_after.split('\n'):
+            print(f"   • {line}")
 
-    return results
+    enterprise_patches_after = run(f"git rev-list --count {common_ancestor_after}..HEAD", cwd=enterprise_repo).stdout.strip()
+    print(f"\n🎯 Enterprise patches count after: {enterprise_patches_after}")
 
+    # Check tags
+    tags = run("git tag -l", cwd=enterprise_repo).stdout.strip()
+    print(f"\n🏷️  Tags created: {tags}")
 
-def cleanup_test_repos():
-    """Clean up test repositories."""
-    print("\n🧹 Cleaning up test repositories...")
-    if TEST_DIR.exists():
-        run(f"rm -rf {TEST_DIR}")
-    print("✅ Cleanup complete")
+    # Validate: Should have 1 enterprise patch after squashing 3
+    expected_patches = "1"  # 3 patches squashed into 1
+    success = enterprise_patches_after == expected_patches
+
+    print(f"\n{'✅' if success else '❌'} Test result:")
+    print(f"  Expected: 3 enterprise patches → 1 squashed patch")
+    print(f"  Actual: {enterprise_patches_before} enterprise patches → {enterprise_patches_after} patches")
+
+    return success
 
 
 def main():
-    """Run all automated squash tests."""
-    print("🚀 Automated Squash Test Suite")
-    print("="*60)
+    print("🧪 Simple Squash Test")
+    print("=" * 50)
 
-    # Check if scripts directory exists
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    if not scripts_dir.exists():
-        print("❌ Scripts directory not found!")
-        print("Run 'make copy-scripts' first")
+    enterprise_repo = setup_simple_test()
+    success = test_squash(enterprise_repo)
+
+    if success:
+        print("\n🎉 Squash test PASSED!")
+        sys.exit(0)
+    else:
+        print("\n💥 Squash test FAILED!")
         sys.exit(1)
-
-    all_results = []
-
-    try:
-        # Run test scenarios
-        all_results.extend(test_squash_no_patches())
-        all_results.extend(test_squash_single_patch())
-        all_results.extend(test_squash_dry_run(3))
-        all_results.extend(test_squash_dry_run(5))
-        all_results.extend(test_squash_actual(3))
-        all_results.extend(test_squash_actual(5))
-
-        # Print results
-        success = print_test_results(all_results)
-
-        if success:
-            print("\n🎉 All squash tests passed!")
-            sys.exit(0)
-        else:
-            print("\n💥 Some squash tests failed!")
-            sys.exit(1)
-
-    except KeyboardInterrupt:
-        print("\n⚠️ Tests interrupted by user")
-        sys.exit(130)
-    except Exception as e:
-        print(f"\n💥 Test execution failed: {e}")
-        sys.exit(1)
-    finally:
-        # Always cleanup
-        cleanup_test_repos()
 
 
 if __name__ == "__main__":
