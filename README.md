@@ -130,3 +130,16 @@ make run-squash-test
 # Cleanup when done
 make clean
 ```
+
+# Python downtime detecter
+```
+export PGPASSWORD='<>'
+  python3 scripts/postgres_downtime_probe.py \
+    --host localhost \
+    --port 9990 \
+    --user paradedb \
+    --dbname paradedb \
+    --table-name public.upgrade_probe \
+    --interval 0.1 \
+    --log-file ~/postgres_downtime_probe.csv
+```
